@@ -10,6 +10,52 @@ get '/' do
 end
 
 get '/files/' do
+
+  gcs = nil
+  arr = Array.new
+  files = bucket.files
+  
+  files.all do |file|
+    gcs = file.name
+    gcs.slice!(2)
+    gcs.slice!(4)
+    gcs = gcs.downcase
+    next if (gcs =~ /[^A-Fa-f0-9]/) != nil
+    next if gcs.length != 64
+    arr.push(gcs)
+  end  
+
+  arr.sort
+  [ 200, arr.to_json ]
+
+end
+
+get '/files/:digest' do
+
+  gcs = nil
+  file = nil
+  dl = nil
+  ctype = nil
+
+  if (params['digest'] =~ /[^A-Fa-f0-9]/) != nil
+    422
+  elsif params['digest'].length != 64
+    422
+  else
+    gcs = params['digest']
+    gcs = gcs.downcase
+    gcs = gcs.insert(2,'/')
+    gcs = gcs.insert(5,'/')
+    file = bucket.file gcs
+    if file == nil
+      404
+    else
+      dl = file.download
+      ctype = file.content_type
+      [ 200, {'Content-Type' => ctype}, dl ]
+    end
+  end
+
 end
 
 post '/files/' do
@@ -28,11 +74,18 @@ post '/files/' do
     else 
       sha = Digest::SHA256.hexdigest tmpfile.read
       gcs = sha.dup
+      gcs = gcs.downcase
       gcs = gcs.insert(2,'/')
       gcs = gcs.insert(5,'/')
       file = bucket.file gcs
       if file == nil
         bucket.create_file tmpfile, gcs
+
+        file = bucket.file gcs
+        file.update do |f|
+          f.content_type = params[:file][:type]
+        end
+
         [ 201, { "uploaded" => sha }.to_json ]
       else
         409
@@ -55,6 +108,7 @@ delete '/files/:digest' do
     422
   else
     gcs = params['digest']
+    gcs = gcs.downcase
     gcs = gcs.insert(2,'/')
     gcs = gcs.insert(5,'/')
     file = bucket.file gcs
@@ -62,4 +116,5 @@ delete '/files/:digest' do
       file.delete
     end
   end
+
 end
